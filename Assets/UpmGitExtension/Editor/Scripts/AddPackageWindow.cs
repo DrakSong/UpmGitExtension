@@ -61,6 +61,48 @@ namespace Coffee.PackageManager
 			menu.ShowAsContext ();
 		}
 
+		Queue<string> queue = new Queue<string> ();
+		List<string> idList = new List<string>();
+
+		void GetPackageJson(string url, string version)
+		{
+
+			Debug.LogFormat ("GetPackageJson: {0}, {1}",url, version);
+			GitUtils.GetPackageJson (url, version, json =>
+			{
+				var dic = MiniJSON.Json.Deserialize (json) as Dictionary<string, object>;
+				var name = dic ["name"] as string;
+
+				var packageId = string.IsNullOrEmpty (name)
+						? null
+						: name + "@" + PackageUtils.GetRepoUrl (url) + "#" + version;
+				if (idList.Count == 0)
+				{
+					_packageId = packageId;
+				}
+
+				idList.Add (packageId);
+				Debug.Log ("Add Id: " + packageId);
+
+
+				var gitDependencies = dic ["gitDependencies"] as Dictionary<string, object>;
+				foreach (var p in gitDependencies)
+				{
+					queue.Enqueue (p.Value as string);
+				}
+
+				if(0 < queue.Count)
+				{
+					var urls = (queue.Dequeue()).Split ('#');
+					EditorApplication.delayCall += ()=> GetPackageJson (urls[0], 1 < urls.Length ? urls [1] : "HEAD");
+				}
+				else
+				{
+					EditorApplication.delayCall += Repaint;
+				}
+			});
+		}
+
 		void OnGUI ()
 		{
 			EditorGUIUtility.labelWidth = 100;
@@ -99,15 +141,11 @@ namespace Coffee.PackageManager
 						{
 							PopupVersions (ver =>
 							{
+								queue.Clear ();
+								idList.Clear ();
 								_version = _refs.Contains (ver) ? ver : "HEAD";
 								_packageId = "";
-								GitUtils.GetPackageJson (_url, _version, name =>
-								{
-									_packageId = string.IsNullOrEmpty (name)
-										? null
-										: name + "@" + _repoUrl + "#" + _version;
-									EditorApplication.delayCall += Repaint;
-								});
+								GetPackageJson (_url, _version);
 							});
 						}
 					}
@@ -115,11 +153,24 @@ namespace Coffee.PackageManager
 					{
 						if (GUILayout.Button (new GUIContent ("Add", "Add a package '" + _packageId + "' to the project."), EditorStyles.miniButton, GUILayout.Width (60)))
 						{
-							PackageUtils.AddPackage (_packageId, req =>
-							{
-								if (req.Status == StatusCode.Success)
-									Close ();
-							});
+							PackageUtils.AddPackages (idList);
+							//Close ();
+
+
+							//foreach(var id in idList)
+							//{
+							//	PackageUtils.AddPackage (id, req =>
+							//	{
+							//		if (req.Status == StatusCode.Success)
+							//			Close ();
+							//	});
+							//}
+
+							//PackageUtils.AddPackage (_packageId, req =>
+							//{
+							//	if (req.Status == StatusCode.Success)
+							//		Close ();
+							//});
 						}
 					}
 					if (_packageId == null)

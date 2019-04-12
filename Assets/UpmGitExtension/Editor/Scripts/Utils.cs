@@ -58,15 +58,18 @@ namespace Coffee.PackageManager
 
 		public static WaitWhile GetPackageJson (string repoUrl, string branch, Action<string> callback)
 		{
+			Debug.LogFormat ("GetPackageJson -> {0}, {1}", repoUrl, branch);
 			const string kPath = "Temp/UpmGit";
 			FileUtil.DeleteFileOrDirectory (kPath);
 
 			string args = string.Format ("clone --depth=1 --branch {0} --single-branch {1} {2}", branch, repoUrl, kPath);
-			return ExecuteGitCommand (args, (_, __) => callback (PackageJsonHelper.GetPackageName (kPath)));
+			var jsonPath = kPath + "/package.json";
+			return ExecuteGitCommand (args, (_, __) => callback (File.Exists (jsonPath) ? File.ReadAllText (jsonPath) : ""));
 		}
 
 		static WaitWhile ExecuteGitCommand (string args, GitCommandCallback callback)
 		{
+			Debug.LogFormat ("ExecuteGitCommand -> {0}", args);
 			var startInfo = new System.Diagnostics.ProcessStartInfo
 			{
 				Arguments = args,
@@ -283,6 +286,25 @@ namespace Coffee.PackageManager
 
 		public static void AddPackage (string packageId, Action<Request> callback = null)
 		{
+			_request = Client.Add (packageId);
+			_callback = callback;
+			EditorUtility.DisplayProgressBar ("Add Package", "Cloning " + packageId, 0.5f);
+			EditorApplication.update += UpdatePackageRequest;
+		}
+
+		public static void AddPackages (List<string> packageIds, Action<Request> callback = null)
+		{
+			StringBuilder sb = new StringBuilder ("$1", 512);
+			for (int i = 1; i < packageIds.Count; i++)
+			{
+				sb.AppendFormat (Regex.Replace (packageIds [i], "([^@]*)@(.*)", "\n    \"$1\": \"$2\","));
+			}
+
+			var manifest = File.ReadAllText ("Packages/manifest.json");
+			manifest = Regex.Replace (manifest, "(\\s+\"dependencies\":\\s+{)", sb.ToString());
+			File.WriteAllText ("Packages/manifest.json", manifest);
+
+			var packageId = packageIds [0];
 			_request = Client.Add (packageId);
 			_callback = callback;
 			EditorUtility.DisplayProgressBar ("Add Package", "Cloning " + packageId, 0.5f);
